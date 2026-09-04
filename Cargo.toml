@@ -1,0 +1,57 @@
+[package]
+name = "tempoup"
+version = "0.1.0"
+description = "Installer and updater for Tempo"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Tempo Contributors"]
+license = "MIT OR Apache-2.0"
+homepage = "https://tempo.xyz"
+repository = "https://github.com/tempoxyz/tempoup"
+readme = "README.md"
+publish = false
+
+[lints.rust]
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "deny", priority = -1 }
+unreachable_pub = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[dependencies]
+base64 = "0.23"
+clap = { version = "4", features = ["derive", "wrap_help"] }
+dirs-next = "2"
+eyre = "0.6"
+flate2 = "1"
+hex = "0.4"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls"] }
+self-replace = "1"
+semver = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+sigstore-verify = { version = "0.11", default-features = false }
+tar = "0.4"
+tempfile = "3"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+debug = "none"
+strip = "debuginfo"
+panic = "abort"
+codegen-units = 16
+
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
+[profile.dev.package]
+crc32fast.opt-level = 3
+flate2.opt-level = 3
+miniz_oxide.opt-level = 3
+tar.opt-level = 3
