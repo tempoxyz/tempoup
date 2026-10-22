@@ -37,8 +37,21 @@ impl Release {
     }
 }
 
+/// Tag prefix of Tempo releases. Earlier releases were tagged `vX.Y.Z`.
+const TEMPO_TAG_PREFIX: &str = "tempo/";
+
+/// The `vX.Y.Z` version of a Tempo release tag, which its asset names use:
+/// `tempo/vX.Y.Z` and legacy `vX.Y.Z` tags both give `vX.Y.Z`.
+pub(crate) fn tempo_tag_version(tag: &str) -> &str {
+    tag.strip_prefix(TEMPO_TAG_PREFIX).unwrap_or(tag)
+}
+
 pub(crate) fn tempo_archive_name(tag: &str, target: Target) -> String {
-    format!("tempo-{tag}-{}.tar.gz", target.triple())
+    format!(
+        "tempo-{}-{}.tar.gz",
+        tempo_tag_version(tag),
+        target.triple()
+    )
 }
 
 pub(crate) fn tempoup_binary_name(target: Target) -> String {
@@ -66,7 +79,7 @@ pub(crate) fn resolve_tempo_release(
     requested: Option<&str>,
 ) -> Result<Release> {
     match requested {
-        Some(tag) => fetch_release(downloader, TEMPO_REPO, tag),
+        Some(tag) => fetch_tempo_release(downloader, tag),
         None => latest_tempo_release(list_releases(downloader, TEMPO_REPO)?)
             .ok_or_else(|| eyre::eyre!("could not find a published Tempo release")),
     }
@@ -95,6 +108,20 @@ pub(crate) fn resolve_latest_tempoup_release(downloader: &Downloader) -> Result<
         bail!("GitHub returned an invalid latest tempoup release");
     }
     Ok(release)
+}
+
+/// Fetch a requested Tempo release. A bare `vX.Y.Z` resolves to its
+/// `tempo/vX.Y.Z` tag, falling back to the legacy `vX.Y.Z` tag.
+fn fetch_tempo_release(downloader: &Downloader, requested: &str) -> Result<Release> {
+    if requested.starts_with(TEMPO_TAG_PREFIX) {
+        return fetch_release(downloader, TEMPO_REPO, requested);
+    }
+    fetch_release(
+        downloader,
+        TEMPO_REPO,
+        &format!("{TEMPO_TAG_PREFIX}{requested}"),
+    )
+    .or_else(|_| fetch_release(downloader, TEMPO_REPO, requested))
 }
 
 fn fetch_release(downloader: &Downloader, repository: &str, tag: &str) -> Result<Release> {
@@ -162,26 +189,33 @@ fn tag_from_release_url(url: &Url, repository: &str) -> Option<String> {
 }
 
 fn is_stable_tempo_release(release: &Release) -> bool {
-    !release.draft && !release.prerelease && tempo_version(&release.tag_name).is_some()
+    !release.draft && !release.prerelease && tempo_release_version(&release.tag_name).is_some()
 }
 
 fn latest_tempo_release(releases: Vec<Release>) -> Option<Release> {
     releases
         .into_iter()
         .filter(is_stable_tempo_release)
-        .filter_map(|release| tempo_version(&release.tag_name).map(|version| (version, release)))
+        .filter_map(|release| {
+            tempo_release_version(&release.tag_name).map(|version| (version, release))
+        })
         .max_by(|(left, _), (right, _)| left.cmp(right))
         .map(|(_, release)| release)
 }
 
-fn tempo_version(tag: &str) -> Option<Version> {
+/// The version of a stable Tempo release tag: `tempo/vX.Y.Z` or legacy `vX.Y.Z`.
+fn tempo_release_version(tag: &str) -> Option<Version> {
+    stable_version(tempo_tag_version(tag))
+}
+
+fn stable_version(tag: &str) -> Option<Version> {
     let raw = tag.strip_prefix('v')?;
     let version = Version::parse(raw).ok()?;
     (tag == format!("v{}.{}.{}", version.major, version.minor, version.patch)).then_some(version)
 }
 
 pub(crate) fn tempoup_version(tag: &str) -> Option<Version> {
-    tempo_version(tag)
+    stable_version(tag)
 }
 
 #[cfg(test)]
@@ -202,6 +236,21 @@ mod tests {
     #[test]
     fn stable_tempo_tags_are_strict() {
         assert!(is_stable_tempo_release(&release("v1.13.2", false, false)));
+        assert!(is_stable_tempo_release(&release(
+            "tempo/v1.17.0",
+            false,
+            false
+        )));
+        assert!(!is_stable_tempo_release(&release(
+            "tempo/v1.17.0-rc.1",
+            false,
+            false
+        )));
+        assert!(!is_stable_tempo_release(&release(
+            "zones/v0.3.7",
+            false,
+            false
+        )));
         assert!(!is_stable_tempo_release(&release("v1.13.2", true, false)));
         assert!(!is_stable_tempo_release(&release("v1.13.2", false, true)));
         assert!(!is_stable_tempo_release(&release(
@@ -230,6 +279,10 @@ mod tests {
         assert_eq!(
             tempo_archive_name("v1.13.2", target),
             "tempo-v1.13.2-x86_64-unknown-linux-gnu.tar.gz"
+        );
+        assert_eq!(
+            tempo_archive_name("tempo/v1.17.0", target),
+            "tempo-v1.17.0-x86_64-unknown-linux-gnu.tar.gz"
         );
         assert_eq!(tempoup_binary_name(target), "tempoup_linux_amd64");
         assert_eq!(
@@ -261,6 +314,17 @@ mod tests {
             release("v2.0.0-rc.1", false, false),
         ];
         assert_eq!(latest_tempo_release(releases).unwrap().tag_name, "v1.13.2");
+
+        let releases = vec![
+            release("v1.16.1", false, false),
+            release("tempo/v1.17.0", false, false),
+            release("zones/v9.0.0", false, false),
+            release("v1.13.2", false, false),
+        ];
+        assert_eq!(
+            latest_tempo_release(releases).unwrap().tag_name,
+            "tempo/v1.17.0"
+        );
     }
 
     #[test]
