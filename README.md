@@ -1,6 +1,6 @@
 # tempoup
 
-Installer and updater for [Tempo](https://tempo.xyz).
+Installer and updater for [Tempo](https://tempo.com).
 
 ## Install
 
