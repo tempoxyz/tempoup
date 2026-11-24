@@ -36,7 +36,8 @@ pub(crate) fn select_method(
     }
 
     let version = Version::parse(
-        tag.strip_prefix('v')
+        crate::release::tempo_tag_version(tag)
+            .strip_prefix('v')
             .ok_or_else(|| eyre::eyre!("invalid release tag {tag}"))?,
     )?;
     if allow_legacy_tempo {
